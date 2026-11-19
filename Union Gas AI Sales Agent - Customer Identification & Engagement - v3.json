@@ -1,0 +1,237 @@
+{
+  "name": "Union Gas AI Sales Agent - Customer Identification & Engagement",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json || {};\nconst body = raw.body || raw;\nconst message = body.message || body.edited_message || body.channel_post || {};\n\n// Extract telegram chat ID and username\nconst rawChatId = message.chat?.id || message.from?.id || body.sessionId || \"\";\nconst firstName = message.from?.first_name || message.chat?.first_name || \"\";\nconst lastName = message.from?.last_name || message.chat?.last_name || \"\";\nconst username = message.from?.username || message.chat?.username || \"\";\n\nconst customerName = (firstName + \" \" + lastName).trim() || username || \"Telegram User\";\n\n// Extract Message Text & ID \nconst text = message.text || message.caption || body.messageText || \"\"; \nconst messageId = message.message_id ? String(message.message_id) : 'MSG\\_' + Date.now();\n\n// Determine Message Type (assigns 'text' if text is present to pass Node 3 filter)\nconst messageType = (typeof text === 'string' && text.trim().length > 0) ? 'text' : 'non-text';\n\n// Return clean normalized output for n8n pipeline\nreturn [{\n  json: {\n    sessionId: String(rawChatId),\n    chatId: Number(rawChatId),\n    customerPhone: String(rawChatId),\n    customerName: customerName,\n    username: username,\n    messageText: text,\n    messageId: messageId,\n    messageType: messageType,\n    platform: 'telegram',\n    receivedAt: new Date().toISOString(),\n    subtask: 'SUBTASK_1_INGESTION_AND_INTENT'\n  }\n}]"
+      },
+      "id": "23826da0-8640-479a-964f-65ba0be81bef",
+      "name": "2. Inbound Message Parser",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.messageType }}",
+                    "rightValue": "text",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Valid Text Message"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a9dfe060-cef5-4219-aa6e-b3e15a21bf29",
+      "name": "3. Filter Non-Text Messages",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=\\={{ $json.messageText || $('2\\. Inbound Message Parser').first().json.messageText }}",
+        "options": {
+          "systemMessage": "You are the LLM Sales Agent for Union Gas (Singapore). You are currently executing Subtask 1: Receive and understand the enquiry.\n\nYOUR SUBTASK 1 OBJECTIVES:\n1. Greet the customer in friendly, concise, professional Singapore English.\n2. Determine the customer's intent from their incoming message:\n   - NEW_ORDER / REPEAT_ORDER: Customer wants LPG gas cylinder supply.\n   - PRICING_INQUIRY: Customer asks about gas cylinder prices or delivery charges.\n   - ORDER_STATUS: Customer inquires about an existing order or delivery timing.\n   - HUMAN_CSO_ESCALATION: Customer requests human support or raises an exception.\n3. Guidelines & Rules:\n   - Ask one clear question at a time.\n   - Use SGD currency formatting ($) where applicable.\n   - Never invent prices, availability, or order status.\n   - If intent is gas ordering, acknowledge and prepare to ask for delivery address details (proceeding to Subtask 2).\n\nOUTPUT INSTRUCTION:\nStructure your response concisely for the customer, and specify the classified intent in your internal reasoning."
+        }
+      },
+      "id": "4890ca13-e745-42c3-92b7-fd3fbf771308",
+      "name": "4. Subtask 1 AI Intent Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        752,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "=\\={{ $('2\\. Inbound Message Parser').first().json.sessionId }}",
+        "contextWindowLength": 10
+      },
+      "id": "95eb98b2-50ba-4543-832c-13a71c9a99ab",
+      "name": "Customer Session Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.2,
+      "position": [
+        864,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        0
+      ],
+      "id": "5e664071-953a-4f85-a321-86a253311053",
+      "name": "1. User Message Trigger",
+      "webhookId": "aa295f82-8474-46ab-9414-3c9883388119",
+      "credentials": {
+        "telegramApi": {
+          "id": "uq89cmeYQAmolz4O",
+          "name": "Telegram account 25051185"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "=\\={{ $('2. Inbound Message Parser').first().json.chatId }}",
+        "text": "=\\={{ $json.output }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "bb4e1813-c36a-48bf-81dc-9d0c50dfbfbd",
+      "name": "Send a text message",
+      "webhookId": "ca6cdafb-7550-4f6e-82cb-661b412d3216",
+      "credentials": {
+        "telegramApi": {
+          "id": "uq89cmeYQAmolz4O",
+          "name": "Telegram account 25051185"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.8-flash",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        624,
+        208
+      ],
+      "id": "018f617f-753e-4e0a-b63f-07812729ebd3",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "SF57TYACXUYOEsCe",
+          "name": "Google Gemini(PaLM) Api account 242"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "2. Inbound Message Parser": {
+      "main": [
+        [
+          {
+            "node": "3. Filter Non-Text Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Filter Non-Text Messages": {
+      "main": [
+        [
+          {
+            "node": "4. Subtask 1 AI Intent Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Customer Session Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "4. Subtask 1 AI Intent Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Subtask 1 AI Intent Agent": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. User Message Trigger": {
+      "main": [
+        [
+          {
+            "node": "2. Inbound Message Parser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "4. Subtask 1 AI Intent Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "ec79e2ef-0596-4371-9139-6c8fc3297627",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d4ebadb9d95df0efff4e8784a1811953a63bd62f8d7a2a45b7c8f23992108d48"
+  },
+  "nodeGroups": [],
+  "id": "P1MTFzMVectJisOE",
+  "tags": []
+}
